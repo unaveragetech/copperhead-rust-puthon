@@ -8,7 +8,7 @@
 [![Python](https://img.shields.io/badge/python-3.8+-blue)](https://python.org)
 [![License](https://img.shields.io/badge/license-SDUC%201.1-green)](https://github.com/unaveragetech/copperhead-rust-puthon/blob/main/LICENSE)
 
-> **Interactive Documentation:** [copperhead-ad8qypth.manus.space](https://copperhead-ad8qypth.manus.space)
+> **Interactive Documentation:** [copperhead-ad8qypth.manus.space](https://copperhead-ad8qypth.manus.space/)
 
 ---
 
