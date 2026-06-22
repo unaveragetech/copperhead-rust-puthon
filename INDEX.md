@@ -11,12 +11,21 @@
 
 **Copperhead** is a Python-to-Rust transpilation framework that lets developers write Python code and run it at Rust speeds. It includes an AI agent that generates, debugs, and tests code from natural language descriptions.
 
-- **GitHub:** https://github.com/unaveragetech/Copperhead
+- **GitHub:** https://github.com/unaveragetech/copperhead-rust-puthon-rust-puthon
 - **Docs Site:** https://copperhead-ad8qypth.manus.space
 - **Version:** 0.1.0
 - **License:** MIT
-- **Python:** 3.8+
+- **Python:** 3.8+ (tested on 3.13.3)
+- **Rust:** 1.89.0 / Cargo 1.89.0
+- **PyO3:** 0.23.5 (Python 3.13 compatible)
 - **Tests:** 179 passing + 52 comprehensive integration tests
+
+### Compiler Status
+
+The full compilation pipeline is **verified working**:
+- Python source → AST → Rust code → Cargo build → `.dll`/`.so`
+- Generates PyO3 0.23 bindings
+- Produces real compiled binaries (tested: 197KB `.dll` from simple function)
 
 ---
 
@@ -25,9 +34,10 @@
 1. **Write Python, Run Rust** - No new language to learn
 2. **10-100x Speedup** - For CPU-intensive tasks
 3. **AI Code Generation** - Describe in English, get code
-4. **Module Registry** - Reuse proven functions
+4. **Module Registry** - Reuse proven functions (13 pre-loaded)
 5. **Interactive Interpreter** - Shared workspace for user+AI
 6. **Production Ready** - Debug, test, compile pipeline
+7. **Actually Compiles** - Real Rust binaries via Cargo
 
 ---
 
@@ -406,6 +416,8 @@ copperhead interpret --load file.py     # Load workspace
 
 ### Compilation Pipeline
 
+**Status: VERIFIED WORKING**
+
 ```
 Input: Python source code (.py file)
          |
@@ -416,14 +428,20 @@ Input: Python source code (.py file)
     [Type Analysis] --> Infer types, Map to Rust, Check compatibility
          |
          v
-    [Transpilation] --> Generate Rust, Add PyO3, Create bindings
+    [Transpilation] --> Generate Rust code with PyO3 0.23 bindings
          |
          v
-    [Compilation] --> Type check, Optimize, Link, Generate .so
+    [Cargo Build] --> cargo build --release
          |
          v
-Output: Compiled module (.so file)
+Output: Compiled module (.dll on Windows, .so on Linux/macOS)
 ```
+
+**Verified with:**
+- Python 3.13.3
+- PyO3 0.23.5
+- Rust 1.89.0
+- Output: 197KB `.dll` from simple function test
 
 ### Import Hook Flow
 

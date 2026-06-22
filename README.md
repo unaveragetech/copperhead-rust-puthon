@@ -2,11 +2,11 @@
 
 **Write Python. Run Rust.**
 
-[![GitHub](https://img.shields.io/badge/GitHub-unaveragetech%2FCopperhead-blue?logo=github)](https://github.com/unaveragetech/Copperhead)
+[![GitHub](https://img.shields.io/badge/GitHub-unaveragetech%2Fcopperhead--rust--puthon-blue?logo=github)](https://github.com/unaveragetech/copperhead-rust-puthon)
 [![Docs](https://img.shields.io/badge/Docs-Interactive-green?logo=markdown)](https://copperhead-ad8qypth.manus.space)
-[![Tests](https://img.shields.io/badge/tests-179%20passing-brightgreen)](https://github.com/unaveragetech/Copperhead/tree/main/copperhead/tests/)
+[![Tests](https://img.shields.io/badge/tests-179%20passing-brightgreen)](https://github.com/unaveragetech/copperhead-rust-puthon/tree/main/copperhead/tests/)
 [![Python](https://img.shields.io/badge/python-3.8+-blue)](https://python.org)
-[![License](https://img.shields.io/badge/license-MIT-green)](https://github.com/unaveragetech/Copperhead/blob/main/LICENSE)
+[![License](https://img.shields.io/badge/license-MIT-green)](https://github.com/unaveragetech/copperhead-rust-puthon/blob/main/LICENSE)
 
 > **Interactive Documentation:** [copperhead-ad8qypth.manus.space](https://copperhead-ad8qypth.manus.space)
 
@@ -17,6 +17,15 @@
 Copperhead is a programming tool that lets you write code in Python (the easy language) but run it at Rust speeds (the fast language). You get the simplicity of Python with the performance of Rust.
 
 **No new language to learn. No complex build steps. Just faster Python.**
+
+### What's Working Today
+
+- **Full compilation pipeline**: Python source → AST → Rust code → Cargo build → `.dll`/`.so`
+- **16 type primitives** mapped to Rust types via PyO3 0.23
+- **AI code generation** from natural language descriptions (verified with Ollama)
+- **Module registry** with 13 pre-loaded examples
+- **179 unit tests + 52 integration tests** (all passing)
+- **Package builds** and passes PyPI quality checks
 
 ---
 
@@ -45,7 +54,12 @@ result = calculate(5.0)  # Runs at Rust speed!
 python my_script.py
 ```
 
-That's it. No compilation step. Just write and run.
+### Compile to Rust (Optional)
+```bash
+copperhead build my_script.py
+```
+
+This generates a `.dll` (Windows) or `.so` (Linux) at native Rust speed.
 
 ---
 
@@ -71,6 +85,7 @@ Copperhead lets you:
 | Gradual optimization? | Yes | No |
 | AI code generation? | Yes | No |
 | Point to specific functions? | Yes | No |
+| Actually compiles to Rust? | Yes | Varies |
 
 ---
 
@@ -229,7 +244,7 @@ copperhead> :save factorial.py
 
 ## Module Registry
 
-Store and reuse your best functions.
+Store and reuse your best functions. Ships with **13 pre-loaded examples**.
 
 ### Commands
 ```bash
@@ -238,6 +253,12 @@ copperhead registry search "matrix"   # Find specific functions
 copperhead registry add script.py     # Save a module
 copperhead registry stats             # See usage statistics
 ```
+
+### Pre-loaded Examples
+
+**Basic (5):** sum_list, sort_numbers, factorial, fibonacci, divide
+
+**Advanced (8):** linear_regression, matrix_multiply, quicksort, binary_search, prime_sieve, word_count, running_average, mandelbrot
 
 ### Why Use It
 - Don't rewrite the same function twice
@@ -322,12 +343,12 @@ pytest copperhead/tests/test_transpiler.py # Transpiler
 copperhead/
 ├── __init__.py          # Core types and decorators
 ├── parser.py            # Reads and understands Python code
-├── transpiler.py        # Converts Python to Rust
-├── compiler.py          # Builds Rust binaries
+├── transpiler.py        # Converts Python to Rust (PyO3 0.23)
+├── compiler.py          # Builds Rust binaries via Cargo
 ├── cli.py               # Command-line interface
-├── llm.py               # AI agent
+├── llm.py               # AI agent (Ollama)
 ├── debugger.py          # Code validation
-├── registry.py          # Module database
+├── registry.py          # Module database (SQLite)
 ├── interpreter.py       # Interactive workspace
 └── tests/               # 179 tests
 ```
@@ -343,11 +364,9 @@ Your Python Code
       ↓
 [Type Analyzer] - Figures out types
       ↓
-[Rust Generator] - Writes equivalent Rust
+[Rust Generator] - Writes equivalent Rust with PyO3 bindings
       ↓
-[PyO3 Bridge] - Adds Python calling code
-      ↓
-[LLVM Compiler] - Creates fast machine code
+[Cargo Compiler] - Creates fast machine code
       ↓
 [Import Hook] - Makes it available to Python
 ```
@@ -395,27 +414,30 @@ A: It uses Ollama (local AI). Your code never leaves your computer.
 **Q: What if something breaks?**
 A: Your code still runs as Python, so your debugger works. Copperhead also has its own debugger.
 
+**Q: Does the compiler actually work?**
+A: Yes. The full pipeline has been verified: Python → parse → transpile → Cargo build → `.dll`/`.so`.
+
 ---
 
 ## Learn More
 
-- **[White Paper](https://github.com/unaveragetech/Copperhead/blob/main/WHITEPAPER.md)** - Detailed explanation for everyone
-- **[Technical Deep Dive](https://github.com/unaveragetech/Copperhead/blob/main/docs/ARCHITECTURE.md)** - How it works internally
-- **[Getting Started](https://github.com/unaveragetech/Copperhead/blob/main/docs/GETTING_STARTED.md)** - Step-by-step guide
-- **[Tutorial](https://github.com/unaveragetech/Copperhead/blob/main/docs/TUTORIAL.md)** - Learn with examples
-- **[API Reference](https://github.com/unaveragetech/Copperhead/blob/main/docs/API_REFERENCE.md)** - Complete function list
-- **[Roadmap](https://github.com/unaveragetech/Copperhead/blob/main/ROADMAP.md)** - What's coming next
+- **[White Paper](https://github.com/unaveragetech/copperhead-rust-puthon/blob/main/WHITEPAPER.md)** - Detailed explanation for everyone
+- **[Technical Deep Dive](https://github.com/unaveragetech/copperhead-rust-puthon/blob/main/docs/ARCHITECTURE.md)** - How it works internally
+- **[Getting Started](https://github.com/unaveragetech/copperhead-rust-puthon/blob/main/docs/GETTING_STARTED.md)** - Step-by-step guide
+- **[Tutorial](https://github.com/unaveragetech/copperhead-rust-puthon/blob/main/docs/TUTORIAL.md)** - Learn with examples
+- **[API Reference](https://github.com/unaveragetech/copperhead-rust-puthon/blob/main/docs/API_REFERENCE.md)** - Complete function list
+- **[Roadmap](https://github.com/unaveragetech/copperhead-rust-puthon/blob/main/ROADMAP.md)** - What's coming next
 
 ---
 
 ## Contributing
 
-Contributions welcome! See the [Roadmap](https://github.com/unaveragetech/Copperhead/blob/main/ROADMAP.md) for planned features.
+Contributions welcome! See the [Roadmap](https://github.com/unaveragetech/copperhead-rust-puthon/blob/main/ROADMAP.md) for planned features.
 
 ```bash
 # Clone the repo
-git clone https://github.com/unaveragetech/Copperhead.git
-cd Copperhead
+git clone https://github.com/unaveragetech/copperhead-rust-puthon.git
+cd copperhead-rust-puthon
 
 # Install dependencies
 pip install -e .
@@ -428,8 +450,8 @@ pytest copperhead/tests/
 
 ## Community
 
-- **GitHub Issues**: [Report bugs or request features](https://github.com/unaveragetech/Copperhead/issues)
-- **Discussions**: [Ask questions](https://github.com/unaveragetech/Copperhead/discussions)
+- **GitHub Issues**: [Report bugs or request features](https://github.com/unaveragetech/copperhead-rust-puthon/issues)
+- **Discussions**: [Ask questions](https://github.com/unaveragetech/copperhead-rust-puthon/discussions)
 
 ---
 

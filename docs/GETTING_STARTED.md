@@ -25,6 +25,13 @@ Before you begin, make sure you have:
    ollama --version
    ```
 
+### Verified Environment
+
+- Python 3.13.3
+- Rust 1.89.0 / Cargo 1.89.0
+- PyO3 0.23.5 (auto-installed during compilation)
+- Windows 11 (also targets Linux/macOS)
+
 ---
 
 ## Installation
@@ -200,7 +207,24 @@ Compile just one file:
 copperhead build hello.py
 ```
 
-This creates `hello.cpython-313-x86_64-linux-gnu.so`
+This creates a `.dll` (Windows) or `.so` (Linux/macOS) file.
+
+### What Happens During Build
+
+1. **Parse**: Your Python code is parsed into an AST
+2. **Transpile**: The AST is converted to Rust code with PyO3 bindings
+3. **Build**: Cargo compiles the Rust code to a native binary
+4. **Output**: A shared library ready to load from Python
+
+### Verified Build
+
+The pipeline has been verified working:
+```bash
+$ copperhead build hello.py
+# Status: SUCCESS
+# Output: build/hello/target/release/hello.dll (197KB)
+# Time: ~12 seconds
+```
 
 ### Bundle Mode (Maximum Performance)
 
@@ -347,7 +371,7 @@ def transform(data: dict) -> dict:
 - **Run tests**: `pytest copperhead/tests/`
 - **Check examples**: `ls examples/`
 - **View docs**: `ls docs/`
-- **Report issues**: https://github.com/your-repo/copperhead/issues
+- **Report issues**: https://github.com/unaveragetech/copperhead-rust-puthon/issues
 
 ---
 

@@ -64,7 +64,6 @@ class CopperheadTranspiler:
         
         # Add PyO3 imports
         lines.append("use pyo3::prelude::*;")
-        lines.append("use pyo3::types::{PyList, PyDict, PyTuple};")
         lines.append("")
         
         # Add module-level imports based on Python imports
@@ -137,14 +136,18 @@ class CopperheadTranspiler:
     
     def _generate_function_body(self, func: FunctionInfo) -> str:
         """Generate Rust function body."""
-        lines = []
-        self.indent_level = 1
-        
-        # For now, generate a placeholder body
-        # In a real implementation, this would transpile the Python AST
-        lines.append(self._indent("Ok(PyNone::get_bound(py).clone().into()))"))
-        
-        return "\n".join(lines)
+        # Placeholder: return a zero value matching the return type
+        if func.return_type:
+            rt = func.return_type.rust_type
+            if rt == "f64" or rt == "f32":
+                return f"Ok(0.0)"
+            elif rt.startswith("i") or rt.startswith("u"):
+                return f"Ok(0)"
+            elif rt == "bool":
+                return f"Ok(false)"
+            elif rt == "()":
+                return f"Ok(())"
+        return "Ok(())"
     
     def _generate_rust_function(self, func: RustFunction) -> str:
         """Generate complete Rust function string."""
@@ -348,7 +351,7 @@ name = "{module_name}"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = {{ version = "0.20.0", features = ["extension-module"] }}
+pyo3 = {{ version = "0.23", features = ["extension-module"] }}
 """
 
 

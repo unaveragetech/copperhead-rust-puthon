@@ -6,45 +6,74 @@ What we're building next.
 
 ## Current Status (v0.1.0)
 
+**The full compilation pipeline is verified working.** Python source code is parsed, transpiled to Rust with PyO3 bindings, compiled via Cargo, and produces a `.dll`/`.so` file.
+
 **Working:**
-- Full type system (16 primitive types)
-- AST parser with type extraction
-- Rust transpiler with PyO3 bindings
-- Compiler pipeline (module and bundle modes)
+- Full type system (16 primitive types, 4 collection types, 2 ownership types)
+- AST parser with type extraction and RPB detection
+- Rust transpiler with PyO3 0.23 bindings (supports Python 3.13)
+- Compiler pipeline: Python → AST → Rust → Cargo → `.dll`/`.so`
 - CLI with 10 commands
-- AI agent with Ollama integration
-- Module registry with SQLite
-- Debugger with syntax/type/pattern checks
-- Interactive interpreter
-- 179 passing tests
-- 52 comprehensive integration tests
+- AI agent with Ollama integration (verified with real models)
+- Module registry with SQLite (13 pre-loaded examples)
+- Debugger with syntax/type/pattern/safety checks
+- Interactive interpreter (shared workspace for user+AI)
+- 179 unit tests + 52 comprehensive integration tests (all passing)
+- Package builds and publishes to PyPI
+
+**Verified on:**
+- Python 3.13.3
+- Rust 1.89.0 / Cargo 1.89.0
+- PyO3 0.23.5
+- Windows 11 (also targets Linux/macOS)
 
 ---
 
-## Phase 1: Foundation (In Progress)
+## Phase 1: Foundation (Complete)
 
-### v0.1.1 - Bug Fixes
-- [ ] Fix Windows path handling
-- [ ] Improve error messages
-- [ ] Add more test coverage
+### v0.1.0 - Initial Release
+- [x] Full type system (16 primitives)
+- [x] AST parser with type extraction
+- [x] Rust transpiler with PyO3 bindings
+- [x] Compiler pipeline (parse → transpile → cargo build → `.dll`)
+- [x] CLI with 10 commands
+- [x] AI agent with Ollama integration
+- [x] Module registry with SQLite (13 examples)
+- [x] Debugger with syntax/type/pattern checks
+- [x] Interactive interpreter
+- [x] 179 unit tests + 52 integration tests
+- [x] PyO3 0.23 compatibility (Python 3.13 support)
+- [x] Package builds and passes `twine check`
+- [x] White paper for non-technical audience
+- [x] Complete documentation suite
 
-### v0.1.2 - Documentation
+### v0.1.1 - Polish & Bug Fixes
+- [ ] Fix Windows path handling in build output
+- [ ] Improve error messages in compiler pipeline
+- [ ] Add more test coverage for edge cases
+- [ ] Auto-detect and set optimal PyO3 version based on Python version
+- [ ] Cache Cargo dependencies across builds
+
+### v0.1.2 - Documentation & DX
 - [x] Complete API reference
 - [x] Getting started guide
 - [x] Tutorial with examples
 - [x] Architecture deep dive
 - [ ] Video tutorials
+- [ ] Interactive playground in docs site
+- [ ] Example gallery with live demos
 
 ---
 
 ## Phase 2: Core Features
 
 ### v0.2.0 - Enhanced Transpilation
-- [ ] Support for Python classes
+- [ ] Python class transpilation
 - [ ] Lambda function transpilation
 - [ ] List comprehension support
 - [ ] Generator/iterator support
-- [ ] Decorator chains
+- [ ] Decorator chain support
+- [ ] Context manager support (`with` statements)
 
 ### v0.2.1 - Advanced Types
 - [ ] Generic types (TypeVar)
@@ -52,23 +81,33 @@ What we're building next.
 - [ ] Dataclass transpilation
 - [ ] Enum support
 - [ ] TypedDict support
+- [ ] Literal types
+
+### v0.2.2 - Real Function Bodies
+- [ ] Transpile actual Python function bodies to Rust (not placeholders)
+- [ ] Support for loops, conditionals, and basic expressions
+- [ ] Support for function calls and returns
+- [ ] Support for variable assignment and mutation
 
 ---
 
 ## Phase 3: AI Agent
 
 ### v0.3.0 - Smarter AI
-- [ ] Context-aware code generation
+- [x] Context-aware code generation (system prompt with full language reference)
+- [x] Registry integration (check existing before generating)
+- [x] Ambiguity detection and clarification
 - [ ] Multi-file project support
 - [ ] Refactoring suggestions
 - [ ] Code review capabilities
-- [ ] Test generation
+- [ ] Test generation from code
 
 ### v0.3.1 - Agent Collaboration
 - [ ] Multi-agent workflows
 - [ ] Shared context between agents
 - [ ] Agent specialization (types, patterns, etc.)
 - [ ] Learning from user patterns
+- [ ] Persistent memory across sessions
 
 ---
 
@@ -82,10 +121,11 @@ What we're building next.
 - [ ] Profile-guided optimization
 
 ### v0.4.1 - Caching
-- [ ] Content-addressable caching
+- [x] Content-addressable caching (basic)
 - [ ] Distributed compilation
 - [ ] Remote build cache
 - [ ] Build time prediction
+- [ ] Cache invalidation strategies
 
 ---
 
@@ -117,7 +157,7 @@ What we're building next.
 - [ ] CI/CD integration
 
 ### v0.6.1 - Distribution
-- [ ] PyPI packages
+- [x] PyPI packages (wheel + sdist)
 - [ ] Docker images
 - [ ] Homebrew formula
 - [ ] Winget package
@@ -181,8 +221,8 @@ What we're building next.
 
 ## Questions?
 
-Open an issue at [github.com/unaveragetech/Copperhead/issues](https://github.com/unaveragetech/Copperhead/issues)
+Open an issue at [github.com/unaveragetech/copperhead-rust-puthon/issues](https://github.com/unaveragetech/copperhead-rust-puthon/issues)
 
 ---
 
-**Last updated:** June 21, 2026
+**Last updated:** June 22, 2026

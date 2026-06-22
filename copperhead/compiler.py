@@ -136,8 +136,10 @@ class CopperheadCompiler:
         build_path = self.build_dir / output_name
         build_path.mkdir(exist_ok=True)
         
-        # Write Rust code
-        rust_file = build_path / "lib.rs"
+        # Write Rust code in src/ directory (Cargo convention)
+        src_path = build_path / "src"
+        src_path.mkdir(exist_ok=True)
+        rust_file = src_path / "lib.rs"
         with open(rust_file, 'w', encoding='utf-8') as f:
             f.write(rust_code)
         
@@ -284,7 +286,7 @@ class CopperheadCompiler:
             )
         
         # Run cargo build
-        mode = "--release" if self.config.release else []
+        mode = ["--release"] if self.config.release else []
         
         try:
             result = subprocess.run(

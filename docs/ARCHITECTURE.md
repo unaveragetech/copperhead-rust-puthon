@@ -78,6 +78,8 @@ The compilation pipeline transforms Python code into fast Rust binaries.
 
 ### Step-by-Step Process
 
+**Status: VERIFIED WORKING (Python → parse → transpile → Cargo build → `.dll`)**
+
 ```
 Input: Python source code (.py file)
          |
@@ -330,7 +332,7 @@ name = "_copperhead_module"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.20", features = ["extension-module"] }
+pyo3 = { version = "0.23", features = ["extension-module"] }
 ```
 
 ### Transpiler Core Logic

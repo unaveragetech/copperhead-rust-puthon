@@ -2,6 +2,9 @@
 
 **Real-world demonstration of Copperhead's performance benefits**
 
+[![GitHub](https://img.shields.io/badge/GitHub-unaveragetech%2Fcopperhead--rust--puthon-blue?logo=github)](https://github.com/unaveragetech/copperhead-rust-puthon)
+[![Docs](https://img.shields.io/badge/Docs-manus.space-green)](https://copperhead-ad8qypth.manus.space)
+
 ---
 
 ## Overview

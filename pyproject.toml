@@ -32,11 +32,11 @@ classifiers = [
 requires-python = ">=3.8"
 
 [project.urls]
-Homepage = "https://github.com/unaveragetech/Copperhead"
+Homepage = "https://github.com/unaveragetech/copperhead-rust-puthon"
 Documentation = "https://copperhead-ad8qypth.manus.space"
-Repository = "https://github.com/unaveragetech/Copperhead"
-Issues = "https://github.com/unaveragetech/Copperhead/issues"
-Roadmap = "https://github.com/unaveragetech/Copperhead/blob/main/ROADMAP.md"
+Repository = "https://github.com/unaveragetech/copperhead-rust-puthon"
+Issues = "https://github.com/unaveragetech/copperhead-rust-puthon/issues"
+Roadmap = "https://github.com/unaveragetech/copperhead-rust-puthon/blob/main/ROADMAP.md"
 
 [project.optional-dependencies]
 dev = [
