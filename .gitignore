@@ -43,6 +43,7 @@ htmlcov/
 # Copperhead
 __copperhead_cache__/
 .copperhead/
+copperhead/.copperhead/
 *.db
 test_*.db
 copperhead_registry.db

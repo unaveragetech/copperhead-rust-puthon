@@ -12,11 +12,12 @@ from copperhead.registry import ModuleRegistry, ModuleMetadata, FunctionSignatur
 
 def create_registry():
     """Create a fresh registry."""
-    db_path = ".copperhead/registry.db"
+    from copperhead.registry import ModuleRegistry
+    registry = ModuleRegistry()
     # Remove old DB if exists
-    if os.path.exists(db_path):
-        os.remove(db_path)
-    return ModuleRegistry(db_path)
+    if os.path.exists(registry.db_path):
+        os.remove(registry.db_path)
+    return ModuleRegistry()
 
 
 def populate_basic_examples(registry: ModuleRegistry):

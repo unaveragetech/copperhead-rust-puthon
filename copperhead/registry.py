@@ -61,10 +61,14 @@ class ModuleMetadata:
 class ModuleRegistry:
     """Registry for storing and managing Copperhead modules."""
     
-    def __init__(self, db_path: str = ".copperhead/registry.db"):
+    def __init__(self, db_path: str = None):
+        if db_path is None:
+            pkg_dir = os.path.dirname(os.path.abspath(__file__))
+            db_path = os.path.join(pkg_dir, ".copperhead", "registry.db")
         self.db_path = db_path
-        self.cache_dir = Path(".copperhead/cache")
-        self.modules_dir = Path(".copperhead/modules")
+        pkg_dir = os.path.dirname(os.path.abspath(__file__))
+        self.cache_dir = Path(os.path.join(pkg_dir, ".copperhead", "cache"))
+        self.modules_dir = Path(os.path.join(pkg_dir, ".copperhead", "modules"))
         
         # Create directories
         dirname = os.path.dirname(db_path)
