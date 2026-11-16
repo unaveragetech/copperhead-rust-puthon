@@ -96,6 +96,8 @@ in Rust and compare results *and* exceptions, plus end-to-end build/import tests
 
 ```bash
 pip install copperhead-rust-puthon      # imported as `copperhead`; CLI command: `copperhead`
+# or straight from GitHub:
+pip install git+https://github.com/unaveragetech/copperhead-rust-puthon.git
 # Install Rust (provides `rustc`): https://rustup.rs  -- then check:
 python -c "import copperhead as cp; print(cp.rust_available())"   # -> True
 ```
