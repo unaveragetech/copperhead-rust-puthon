@@ -389,7 +389,7 @@ class CopperheadInterpreter:
             result = subprocess.run(
                 ["python", "-m", "pytest", temp_path, "-v"],
                 capture_output=True,
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 timeout=30
             )
             

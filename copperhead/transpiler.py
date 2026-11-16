@@ -1,3 +1,4 @@
+import re
 """
 Copperhead Rust Transpiler
 
@@ -48,6 +49,14 @@ class RustModule:
     pyo3_imports: List[str]
 
 
+class TranspileError(Exception):
+    """The legacy PyO3 transpiler met Python it cannot translate faithfully."""
+
+    def __init__(self, diagnostics):
+        self.diagnostics = list(diagnostics)
+        super().__init__("cannot transpile faithfully:\n  - " + "\n  - ".join(self.diagnostics))
+
+
 class CopperheadTranspiler:
     """Transpiler for converting Python AST to Rust code.
 
@@ -68,9 +77,17 @@ class CopperheadTranspiler:
         self.current_function = None
         self.local_vars: Dict[str, str] = {}
         self.pyo3_wrappers: List[str] = []
+        # Constructs whose Python semantics are NOT reproduced by the generated Rust.
+        self.diagnostics: List[str] = []
 
-    def transpile_module(self, module_info: ModuleInfo) -> str:
-        """Transpile a module to Rust code."""
+    def transpile_module(self, module_info: ModuleInfo, module_name: Optional[str] = None,
+                         strict: bool = False) -> str:
+        """Transpile a module to Rust code.
+
+        ``module_name`` is the Python-visible extension module name; it MUST match
+        the Cargo ``[lib] name`` or ``import <name>`` cannot find ``PyInit_<name>``.
+        """
+        module_name = module_name or "_copperhead_module"
         lines = []
 
         # Track module-level function names for recursive calls
@@ -94,13 +111,15 @@ class CopperheadTranspiler:
                 lines.append("")
 
         lines.append("#[pymodule]")
-        lines.append("fn _copperhead_module(m: &Bound<'_, PyModule>) -> PyResult<()> {")
+        lines.append(f"fn {module_name}(m: &Bound<'_, PyModule>) -> PyResult<()> {{")
         for func in module_info.functions:
             if func.is_rpb:
                 lines.append(f"    m.add_function(wrap_pyfunction!({func.name}, m)?)?;")
         lines.append("    Ok(())")
         lines.append("}")
 
+        if strict and self.diagnostics:
+            raise TranspileError(dict.fromkeys(self.diagnostics))
         return "\n".join(lines)
 
     def transpile_function(self, func: FunctionInfo) -> Optional[RustFunction]:
@@ -231,6 +250,7 @@ class CopperheadTranspiler:
         handler = dispatch.get(type(stmt))
         if handler:
             return handler(stmt)
+        self.diagnostics.append(f"unsupported statement: {type(stmt).__name__}")
         return f"/* unsupported statement: {type(stmt).__name__} */"
 
     # ── Return ───────────────────────────────────────────────────────────
@@ -985,6 +1005,7 @@ impl {name} {{
         handler = dispatch.get(type(expr))
         if handler:
             return handler(expr)
+        self.diagnostics.append(f"unsupported expression: {type(expr).__name__}")
         return "PyObject::None(_py)"
 
     # ── Name ─────────────────────────────────────────────────────────────
@@ -1292,6 +1313,12 @@ impl {name} {{
         elif len(args) == 2:
             return f"({args[0]}..{args[1]})"
         elif len(args) == 3:
+            m = re.fullmatch(r"\(?-\s*(\d+)\)?", args[2].strip())
+            if m:  # range(a, b, -k)  ==  (b+1..=a).rev().step_by(k)
+                return f"(({args[1]} + 1)..=({args[0]})).rev().step_by({m.group(1)})"
+            if re.fullmatch(r"\d+", args[2].strip()) and int(args[2]) > 0:
+                return f"({args[0]}..{args[1]}).step_by({args[2]})"
+            self.diagnostics.append("range() with a non-literal step (sign unknown at compile time)")
             return f"({args[0]}..{args[1]}).step_by({args[2]} as usize)"
         return "(0..0)"
 
@@ -1336,8 +1363,9 @@ impl {name} {{
         return f"({args[0]}).iter().max().copied().unwrap_or_default()" if args else "0"
 
     def _call_sum(self, args, kw):
-        start = kw.get("start", "0")
-        return f"({args[0]}).iter().sum::<i64>() + {start}" if args else start
+        # accumulator type follows the element type (int OR float), not a hard-coded i64
+        start = kw.get("start", "Default::default()")
+        return f"({args[0]}).iter().copied().fold({start}, |__a, __b| __a + __b)" if args else start
 
     def _call_enumerate(self, args, kw):
         start = kw.get("start", "0")
@@ -1452,25 +1480,30 @@ impl {name} {{
         return f"/* complex */ PyObject::None(_py)" if args else "PyObject::None(_py)"
 
     def _call_divmod(self, args, kw):
-        if len(args) >= 2:
-            return f"(({args[0]} / {args[1]}), ({args[0]} % {args[1]}))"
+        if len(args) >= 2:  # Python floors; Rust truncates toward zero
+            return (f"{{ let (__a, __b) = ({args[0]}, {args[1]}); "
+                    f"let __q = __a / __b - if (__a % __b != 0) && ((__a < 0) != (__b < 0)) {{ 1 }} else {{ 0 }}; "
+                    f"(__q, __a - __q * __b) }}")
         return "(0, 0)"
 
     def _call_pow(self, args, kw):
+        self.diagnostics.append("pow(): result type (int/float, negative exponents) depends on runtime types")
         mod = kw.get("mod", "")
         if mod:
             return f"({args[0]}).powi({args[1]} as i32) % {mod}" if len(args) >= 2 else "0"
         return f"({args[0]}).powi({args[1]} as i32)" if len(args) >= 2 else "0"
 
     def _call_round(self, args, kw):
-        ndigits = args[1] if len(args) > 1 else "0"
-        return f"({args[0]}).round()" if args else "0.0"
+        if len(args) > 1 or "ndigits" in kw:
+            self.diagnostics.append("round(x, ndigits) (Python rounds the decimal repr, not the binary value)")
+        # Python rounds half to even and returns an int for round(x)
+        return f"(({args[0]}).round_ties_even() as i64)" if args else "0"
 
     def _call_chr(self, args, kw):
         return f"char::from_u32({args[0]} as u32).unwrap_or(' ')" if args else "' '"
 
     def _call_ord(self, args, kw):
-        return f"({args[0]}).as_bytes()[0] as i64" if args else "0"
+        return f"({args[0]}).chars().next().map(|__c| __c as i64).unwrap_or(0)" if args else "0"
 
     def _call_hex(self, args, kw):
         return f"format!(\"0x{{:x}}\", {args[0]})" if args else '"0x0"'
@@ -1559,7 +1592,7 @@ impl {name} {{
         str_methods = {
             "upper": "to_uppercase",
             "lower": "to_lowercase",
-            "title": "to_titlecase",
+            "title": "title",
             "capitalize": "capitalize",
             "strip": "trim",
             "lstrip": "trim_start",
@@ -1637,16 +1670,18 @@ impl {name} {{
         _is_str = lambda v: ".to_string()" in v or v.startswith('"') or v.startswith("'")
         _is_str_obj = lambda v: _is_str(v) or self.local_vars.get(v, "") == "String"
         if method == "index" and args:
-            if _is_str_obj(obj):
-                return f"({obj}).find(&{args[0]}).map(|i| i as i64).unwrap_or(-1)"
-            return f"({obj}).iter().position(|x| *x == {args[0]}).map(|i| i as i64).unwrap_or(-1)"
+            if _is_str_obj(obj):  # str.index raises ValueError (str.find returns -1)
+                return (f"({obj}).find(&{args[0]}).map(|i| i as i64)"
+                        f".ok_or_else(|| pyo3::exceptions::PyValueError::new_err(\"substring not found\"))?")
+            return (f"({obj}).iter().position(|x| *x == {args[0]}).map(|i| i as i64)"
+                    f".ok_or_else(|| pyo3::exceptions::PyValueError::new_err(\"value is not in list\"))?")
         if method == "count" and args:
             if _is_str_obj(obj):
                 return f"({obj}).matches(&{args[0]}).count() as i64"
             return f"({obj}).iter().filter(|x| **x == {args[0]}).count() as i64"
         if method == "pop":
             if not args:
-                return f"({obj}).pop()"
+                return f"({obj}).pop().ok_or_else(|| pyo3::exceptions::PyIndexError::new_err(\"pop from empty list\"))?"
             if _is_str(args[0]):
                 default = args[1] if len(args) > 1 else "None"
                 return f"({obj}).remove(&{args[0]}).unwrap_or({default})"
@@ -1667,12 +1702,19 @@ impl {name} {{
                 return f"({obj}).find(&{args[0]}).map(|i| i as i64).unwrap_or(-1)"
             if method == "count" and args:
                 return f"({obj}).matches(&{args[0]}).count() as i64"
-            if method == "center" and args:
-                return f"({obj}).chars().take({args[0]} as usize).collect::<String>()"
-            if method == "ljust" and args:
-                return f"({obj}).chars().take({args[0]} as usize).collect::<String>()"
-            if method == "rjust" and args:
-                return f"({obj}).chars().take({args[0]} as usize).collect::<String>()"
+            if method in ("center", "ljust", "rjust") and args:
+                fill = f"({args[1]}).chars().next().unwrap_or(' ')" if len(args) > 1 else "' '"
+                if method == "ljust":
+                    left = "0"
+                elif method == "rjust":
+                    left = "__p"
+                else:  # CPython: left = pad/2 + (pad & width & 1)
+                    left = "__p / 2 + (__p & __w & 1)"
+                return (f"{{ let __s = ({obj}).to_string(); let __w = ({args[0]}) as usize; "
+                        f"let __f: char = {fill}; let __n = __s.chars().count(); "
+                        f"if __w <= __n {{ __s }} else {{ let __p = __w - __n; let __l = {left}; "
+                        f"format!(\"{{}}{{}}{{}}\", std::iter::repeat(__f).take(__l).collect::<String>(), __s, "
+                        f"std::iter::repeat(__f).take(__p - __l).collect::<String>()) }} }}")
             if method == "zfill" and args:
                 return f"format!(\"{{:0>width$}}\", {obj}, width = {args[0]} as usize)"
             if method == "isalpha":
@@ -1688,15 +1730,21 @@ impl {name} {{
             if method == "islower":
                 return f"({obj}).chars().all(|c| c.is_lowercase())"
             if method == "istitle":
-                return f"({obj}).chars().next().map_or(false, |c| c.is_uppercase())"
+                return (f"{{ let mut __prev_cased = false; let mut __any = false; let mut __ok = true; "
+                        f"for __c in ({obj}).chars() {{ if __c.is_uppercase() {{ if __prev_cased {{ __ok = false; }} "
+                        f"__prev_cased = true; __any = true; }} else if __c.is_lowercase() {{ if !__prev_cased "
+                        f"{{ __ok = false; }} __prev_cased = true; __any = true; }} else {{ __prev_cased = false; }} }} "
+                        f"__ok && __any }}")
             if method == "isnumeric":
                 return f"({obj}).chars().all(|c| c.is_numeric())"
             if method == "isdecimal":
                 return f"({obj}).chars().all(|c| c.is_ascii_digit())"
             if method == "isidentifier":
-                return f"({obj}).chars().all(|c| c.is_alphabetic() || c == '_')"
+                return (f"{{ let __s = ({obj}).to_string(); let mut __it = __s.chars(); "
+                        f"match __it.next() {{ Some(__c) if __c == '_' || __c.is_alphabetic() => "
+                        f"__it.all(|c| c == '_' || c.is_alphanumeric()), _ => false }} }}")
             if method == "isprintable":
-                return f"({obj}).chars().all(|c| c.is_alphanumeric() || c.is_whitespace())"
+                return f"({obj}).chars().all(|c| c == ' ' || (!c.is_control() && !c.is_whitespace()))"
             if method == "isascii":
                 return f"({obj}).is_ascii()"
             if method == "encode":
@@ -1725,14 +1773,26 @@ impl {name} {{
                 return f"({obj}).lines().map(|s| s.to_string()).collect::<Vec<_>>()"
             if method == "expandtabs" and args:
                 return f'({obj}).replace("\\t", &{args[0]})'
-            if method == "maketrans":
-                return f"/* maketrans */ HashMap::new()"
-            if method == "translate":
-                return f"/* translate */ ({obj}).clone()"
+            if method in ("maketrans", "translate"):
+                self.diagnostics.append(f"str.{method}()")
+                return f"/* {method} */ ({obj}).clone()"
             if method == "casefold":
                 return f"({obj}).to_lowercase()"
             if method == "swapcase":
-                return f"/* swapcase */ ({obj}).clone()"
+                return (f"({obj}).chars().map(|c| if c.is_uppercase() {{ c.to_lowercase().collect::<String>() }} "
+                        f"else if c.is_lowercase() {{ c.to_uppercase().collect::<String>() }} "
+                        f"else {{ c.to_string() }}).collect::<String>()")
+            if method == "title":
+                return (f"{{ let mut __up = true; ({obj}).chars().map(|c| if c.is_alphabetic() {{ "
+                        f"let r = if __up {{ c.to_uppercase().collect::<String>() }} "
+                        f"else {{ c.to_lowercase().collect::<String>() }}; __up = false; r }} "
+                        f"else {{ __up = true; c.to_string() }}).collect::<String>() }}")
+            if method == "capitalize":
+                return (f"{{ let __s = ({obj}).to_string(); let mut __it = __s.chars(); match __it.next() {{ "
+                        f"Some(__c) => __c.to_uppercase().collect::<String>() + &__it.as_str().to_lowercase(), "
+                        f"None => String::new() }} }}")
+            if method in ("decode",):
+                self.diagnostics.append("bytes.decode()")
             return f"({obj}).{mapped}()"
 
         if method in vec_methods:
@@ -1741,13 +1801,15 @@ impl {name} {{
                 return f"({obj}).push({args[0]})"
             if method == "insert" and len(args) >= 2:
                 return f"({obj}).insert({args[0]} as usize, {args[1]})"
-            if method == "remove" and args:
-                return f"({obj}).retain(|x| x != &{args[0]})"
+            if method == "remove" and args:  # removes the FIRST match; ValueError when absent
+                return (f"{{ match ({obj}).iter().position(|x| *x == {args[0]}) {{ Some(__p) => {{ ({obj}).remove(__p); }} "
+                        f"None => return Err(pyo3::exceptions::PyValueError::new_err(\"list.remove(x): x not in list\")) }} }}")
             if method == "pop":
                 idx = args[0] if args else f"({obj}).len() - 1"
                 return f"({obj}).remove({idx} as usize)"
-            if method == "index" and args:
-                return f"({obj}).iter().position(|x| *x == {args[0]}).map(|i| i as i64).unwrap_or(-1)"
+            if method == "index" and args:  # ValueError, never -1
+                return (f"({obj}).iter().position(|x| *x == {args[0]}).map(|i| i as i64)"
+                        f".ok_or_else(|| pyo3::exceptions::PyValueError::new_err(\"value is not in list\"))?")
             if method == "sort":
                 return f"({obj}).sort()"
             if method == "reverse":
@@ -1784,7 +1846,8 @@ impl {name} {{
             if method == "setdefault" and len(args) >= 2:
                 return f"({obj}).entry({args[0]}).or_insert({args[1]}).clone()"
             if method == "popitem":
-                return f"({obj}).pop_first().map(|(k, v)| (k, v))"
+                self.diagnostics.append("dict.popitem() (HashMap has no insertion order; Python pops LIFO)")
+                return f"({obj}).drain().next()"
             if method == "fromkeys" and args:
                 return f"({args[0]}).into_iter().map(|k| (k, {args[1] if len(args) > 1 else 'None'.to_string()})).collect::<HashMap<_, _>>()"
             return f"({obj}).{method}({args_str})"
@@ -2240,13 +2303,74 @@ impl {name} {{
         return self.indent_str * self.indent_level + line
 
 
+# Constructs the legacy transpiler cannot translate faithfully.  The lenient output is kept
+# (for inspection / old tests) but every use is recorded; ``strict=True`` raises instead.
+_SEMANTIC_LOSS = {
+    "_transpile_try": "try/except/finally (exception handling is emitted as comments)",
+    "_transpile_try_star": "try/except* (exception handling is emitted as comments)",
+    "_transpile_with": "with-statement (__enter__/__exit__ are not called)",
+    "_transpile_async_with": "async with",
+    "_transpile_async_for": "async for",
+    "_transpile_async_function_def": "async def",
+    "_transpile_global": "global statement",
+    "_transpile_nonlocal": "nonlocal statement",
+    "_transpile_delete": "del statement",
+    "_transpile_yield": "yield (generators)",
+    "_transpile_yield_from": "yield from (generators)",
+    "_transpile_await": "await",
+    "_transpile_starred": "starred expression / assignment",
+    "_transpile_lambda": "lambda (closures are not captured)",
+    "_transpile_match": "match statement",
+    "_call_isinstance": "isinstance() (always true in the generated code)",
+    "_call_hasattr": "hasattr() (always true in the generated code)",
+    "_call_getattr": "getattr()",
+    "_call_setattr": "setattr()",
+    "_call_type": "type()",
+    "_call_id": "id()",
+    "_call_hash": "hash()",
+    "_call_memoryview": "memoryview()",
+    "_call_complex": "complex()",
+    "_call_open": "open()",
+    "_call_super": "super()",
+    "_call_vars": "vars()",
+    "_call_globals": "globals()",
+    "_call_locals": "locals()",
+    "_call_exec": "exec()",
+    "_call_eval": "eval()",
+    "_call_input": "input()",
+    "_call_ord": None,
+}
+
+
+def _install_semantic_loss_tracking():
+    def make(orig, why):
+        def wrapper(self, *a, **k):
+            if why:
+                self.diagnostics.append(why)
+            return orig(self, *a, **k)
+        wrapper.__name__ = orig.__name__
+        wrapper.__doc__ = orig.__doc__
+        return wrapper
+
+    for name, why in _SEMANTIC_LOSS.items():
+        orig = getattr(CopperheadTranspiler, name, None)
+        if orig is not None and why:
+            setattr(CopperheadTranspiler, name, make(orig, why))
+
+
+_install_semantic_loss_tracking()
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # MODULE-LEVEL API
 # ══════════════════════════════════════════════════════════════════════════
 
-def transpile_module(module_info: ModuleInfo) -> str:
+def transpile_module(module_info: ModuleInfo, module_name: Optional[str] = None,
+                     strict: bool = False) -> str:
+    """Transpile. With ``strict=True`` raise :class:`TranspileError` instead of emitting
+    placeholders / comments for constructs whose semantics would be lost."""
     transpiler = CopperheadTranspiler()
-    return transpiler.transpile_module(module_info)
+    return transpiler.transpile_module(module_info, module_name, strict=strict)
 
 
 def transpile_source(source: str, filename: str = "<unknown>") -> str:

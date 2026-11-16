@@ -77,8 +77,10 @@ class GenerationResult:
 class OllamaClient:
     """Client for interacting with Ollama API."""
     
-    def __init__(self, model: str = "maryasov/qwen2.5-coder-cline:latest"):
-        self.model = model
+    def __init__(self, model: str = None):
+        import os
+        self.model = model or os.environ.get("COPPERHEAD_MODEL", "maryasov/qwen2.5-coder-cline:latest")
+        self.timeout = int(os.environ.get("COPPERHEAD_LLM_TIMEOUT", "120"))
         self.base_url = "http://localhost:11434"
     
     def generate(self, prompt: str, system: str = "") -> str:
@@ -92,8 +94,8 @@ class OllamaClient:
             result = subprocess.run(
                 ["ollama", "run", self.model, full_prompt],
                 capture_output=True,
-                text=True,
-                timeout=120
+                text=True, encoding="utf-8", errors="replace",
+                timeout=self.timeout
             )
             
             if result.returncode != 0:
@@ -102,7 +104,7 @@ class OllamaClient:
             return result.stdout.strip()
         
         except subprocess.TimeoutExpired:
-            raise RuntimeError("Ollama generation timed out (120s limit)")
+            raise RuntimeError(f"Ollama generation timed out ({self.timeout}s; raise COPPERHEAD_LLM_TIMEOUT)")
         except FileNotFoundError:
             raise RuntimeError("Ollama not found. Please install Ollama first.")
     
@@ -112,7 +114,7 @@ class OllamaClient:
             result = subprocess.run(
                 ["ollama", "list"],
                 capture_output=True,
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 timeout=10
             )
             return result.returncode == 0
@@ -285,11 +287,15 @@ def process_value(x: cp.Option[cp.f64]) -> cp.f64:
 
 1. **Always include imports**: Start with `import copperhead as cp`
 2. **Always add type annotations**: Every variable and function parameter needs types
-3. **Always use @cp.compile**: For any function that needs Rust performance
-4. **Use @cp.no_gil for CPU-intensive work**: Loops, math operations, data processing
-5. **Prefer typed collections**: Use `list[cp.f64]` not just `list`
-6. **Handle errors explicitly**: Use cp.Result for operations that can fail
-7. **Use ownership annotations**: When function needs to modify data, use cp.mut[T]
+3. **Always use @cp.jit** (alias: @cp.compile): For any function that needs Rust performance
+4. **Compile only the hot numeric core**: int/float/bool arithmetic, loops, `range`, lists of int/float,
+   `math.*`. Strings, dicts, classes, try/except, print, I/O and numpy/pandas are NOT compiled -
+   such functions silently run as plain Python, so keep them outside the decorated function.
+5. **Keep compiled functions pure**: no I/O, no printing, do not mutate list arguments, one type per variable
+   (write `total = 0.0`, not `total = 0` followed by float additions)
+6. **Do not rely on**: ownership analysis (cp.mut / cp.ref are only annotations), NumPy/Pandas integration,
+   or @cp.no_gil for speed (it only documents thread-safety; native calls already release the GIL)
+7. **Tests must compare against the plain-Python result** (`f.py_func`) for typical and edge inputs
 
 ## TEST GENERATION RULES
 
@@ -736,7 +742,7 @@ class CodeGenerator:
             result = subprocess.run(
                 ["python", "-m", "pytest", test_path, "-v"],
                 capture_output=True,
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 timeout=60
             )
             

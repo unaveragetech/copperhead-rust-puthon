@@ -1,3 +1,5 @@
+> **New in 0.2:** the simplest way to use Copperhead is `@cp.jit` - see [JIT guide](JIT.md). The sections below describe the experimental `copperhead build` (PyO3 extension) pipeline.
+
 # Getting Started with Copperhead
 
 A step-by-step guide to making your first Copperhead program.

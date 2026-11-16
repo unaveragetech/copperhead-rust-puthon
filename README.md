@@ -4,8 +4,8 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-unaveragetech%2Fcopperhead--rust--puthon-blue?logo=github)](https://github.com/unaveragetech/copperhead-rust-puthon)
 [![Docs](https://img.shields.io/badge/Docs-Interactive-green?logo=markdown)](https://copperhead-ad8qypth.manus.space)
-[![Tests](https://img.shields.io/badge/tests-375%20passing-brightgreen)](https://github.com/unaveragetech/copperhead-rust-puthon/tree/main/copperhead/tests/)
-[![Python](https://img.shields.io/badge/python-3.8+-blue)](https://python.org)
+[![Tests](https://img.shields.io/badge/tests-pytest-brightgreen)](https://github.com/unaveragetech/copperhead-rust-puthon/tree/main/copperhead/tests/)
+[![Python](https://img.shields.io/badge/python-3.9+-blue)](https://python.org)
 [![License](https://img.shields.io/badge/license-SDUC%201.1-green)](https://github.com/unaveragetech/copperhead-rust-puthon/blob/main/LICENSE)
 
 > **Interactive Documentation:** [copperhead-ad8qypth.manus.space](https://copperhead-ad8qypth.manus.space/)
@@ -14,58 +14,103 @@
 
 ## What is Copperhead?
 
-Copperhead is a programming tool that lets you write code in Python (the easy language) but run it at Rust speeds (the fast language). You get the simplicity of Python with the performance of Rust.
+Copperhead compiles **Python functions to native Rust** — you add one decorator and keep writing Python.
 
-**No new language to learn. No complex build steps. Just faster Python.**
+```python
+import copperhead as cp
 
-### What's Working Today
+@cp.jit                      # that's the whole API
+def collatz_total(limit):
+    best = 0
+    for start in range(1, limit):
+        n, steps = start, 0
+        while n != 1:
+            n = n // 2 if n % 2 == 0 else 3 * n + 1
+            steps += 1
+        best = max(best, steps)
+    return best
 
-- **Full compilation pipeline**: Python source → AST → Rust code → Cargo build → `.dll`/`.so`
-- **Complete AST coverage**: All 28 Python statement types and 27 expression types transpiled to Rust
-- **60+ Python builtins** mapped to Rust equivalents (len, range, abs, min, max, sum, sorted, etc.)
-- **40+ string methods** mapped (upper, lower, strip, replace, split, find, join, etc.)
-- **10+ Vec/Dict methods** mapped (append→push, get, keys, values, items, etc.)
-- **16 type primitives** mapped to Rust types via PyO3 0.23
-- **AI code generation** from natural language descriptions (verified with Ollama)
-- **Module registry** with 13 pre-loaded examples
-- **375 unit tests** (all passing) — comprehensive AST coverage, type system, parser, transpiler, compiler, CLI, LLM, registry, debugger
-- **Package builds** and passes PyPI quality checks (`twine check`)
+collatz_total(300_000)       # 1st call: compiles (~1 s, cached on disk). Every later call: native.
+```
+
+* **No annotations needed.** The function is specialised on the runtime types of its arguments
+  (`int`, `float`, `bool`, `list[int]`, `list[float]`, `array.array`, 1-D numpy arrays).
+* **Python semantics, exactly.** Floor division/modulo, negative indexing, `**`, chained comparisons and
+  `int` overflow behave like CPython (integers are overflow-checked; if a value outgrows 64 bits the call is
+  transparently re-run in Python and returns the big int).
+* **Never silently wrong.** Anything the translator cannot reproduce exactly (try/except, strings, dicts,
+  classes, `print`, `isinstance`, ...) makes the function run as plain Python and emits **one**
+  `CopperheadWarning` that says why. `@cp.jit(strict=True)` turns that into an error instead.
+  Errors at run time in native code (zero division, bad index, overflow) re-run the call in Python so you get the real exception.
+* **Real parallelism.** Native calls release the GIL, so threads running compiled functions scale across cores.
+* **Zero setup beyond Rust.** It needs only `rustc` (from [rustup.rs](https://rustup.rs)); no cargo project,
+  no crates, no PyO3 — the compiled library is loaded with `ctypes`.
+
+Measured on this repository (`python benchmarks/jit_bench.py`, Python 3.13, compile excluded, results verified equal):
+
+| case | CPython | `@cp.jit` | speed-up |
+|---|---|---|---|
+| fib(30) | 253 ms | 11 ms | 22x |
+| Collatz up to 300 000 | 5 324 ms | 75 ms | 71x |
+| sieve of Eratosthenes, n = 5 M | 1 234 ms | 104 ms | 12x |
+| Mandelbrot 300x300 | 525 ms | 9 ms | 60x |
+
+Speed-ups depend on the workload; code dominated by calls into other libraries will not speed up.
+
+### Decorators
+
+| decorator | meaning |
+|---|---|
+| `@cp.jit` / `@cp.compile` | compile on first call (both spellings, with or without `()`) |
+| `@cp.jit(strict=True)` | raise `cp.Unsupported` instead of falling back to Python |
+| `@cp.jit(eager=True)` | compile at import time when every parameter is annotated (`x: int`, `y: float`, ...) |
+| `@cp.no_gil` | same, and documents that the function is meant to be run from threads |
+
+Introspection: `f.explain(*args)` (why is it / isn't it compiled), `f.rust_source(*args)` (the generated Rust),
+`f.py_func` (the original), `f.native_calls` / `f.python_calls`. Set `COPPERHEAD_DISABLE=1` to run everything as plain Python.
+
+### Supported subset (compiled natively)
+
+`int` / `float` / `bool` scalars, `if` / `while` / `for … in range()` / `for x in list`, `break` / `continue`,
+tuple swaps, local lists (`[0] * n`, `append`, indexing), `len`, `abs`, `min`, `max`, `int()`, `float()`, `bool()`,
+`sum()` of int lists, `math.*` (sqrt, sin, cos, tan, exp, log, floor, ceil, …), `raise`/`assert` (re-run in Python),
+and calls to other functions in the same module (compiled together, recursion included).
+List arguments are read-only inside compiled code. Functions must be pure (no I/O, no mutation of arguments).
+
+---
+
+## Also in this repository
+
+A second, **experimental** pipeline (`copperhead build`) transpiles annotated functions to a
+PyO3 extension module via Cargo (`.pyd` on Windows, `.so` elsewhere) so they can be shipped as a package.
+It now builds and imports real extensions (single files and directory bundles) and runs in *strict* mode:
+if a construct would lose its Python semantics (`try`, `with`, `isinstance`, `yield`, ...) the build fails with an
+explanation instead of generating placeholder code. The AI code-generation features and module registry are unchanged.
+
+Tests: `python -m pytest copperhead/tests` — includes differential tests that run each function in Python and
+in Rust and compare results *and* exceptions, plus end-to-end build/import tests.
 
 ---
 
 ## Quick Start (2 minutes)
 
-### Install
 ```bash
-pip install copperhead-rust-puthon
+pip install copperhead-rust-puthon      # imported as `copperhead`; CLI command: `copperhead`
+# Install Rust (provides `rustc`): https://rustup.rs  -- then check:
+python -c "import copperhead as cp; print(cp.rust_available())"   # -> True
 ```
 
-> **Note:** The package name on PyPI is `copperhead-rust-puthon`, but you import it as `copperhead` and use the `copperhead` CLI command.
+Without `rustc` everything still works: decorated functions simply run as plain Python.
+Requires Python 3.9+. Compiled libraries are cached in `%LOCALAPPDATA%\copperhead` (Windows) or
+`~/.cache/copperhead` (override with `COPPERHEAD_CACHE`; wipe with `cp.clear_cache()`).
 
-### Write Fast Python
 ```python
 import copperhead as cp
 
-# Mark this function for Rust speed
-@cp.compile(target="rust")
-def calculate(x: float) -> float:
-    return x * x + cp.math.sin(x)
-
-# Call it like normal Python
-result = calculate(5.0)  # Runs at Rust speed!
+@cp.jit
+def calculate(x):
+    return x * x + cp.math.sin(x)  # or `import math; math.sin(x)`
 ```
-
-### Run
-```bash
-python my_script.py
-```
-
-### Compile to Rust (Optional)
-```bash
-copperhead build my_script.py
-```
-
-This generates a `.dll` (Windows) or `.so` (Linux) at native Rust speed.
 
 ---
 
@@ -80,7 +125,7 @@ This generates a `.dll` (Windows) or `.so` (Linux) at native Rust speed.
 Copperhead lets you:
 1. Write Python (easy)
 2. Mark functions for Rust speed (simple annotation)
-3. Get 10-100x faster execution (automatic)
+3. Get large speed-ups on numeric/loop-heavy code (12-70x in our benchmarks)
 
 ### What Makes It Different
 
@@ -419,10 +464,10 @@ A: No. You write Python. Copperhead handles the Rust.
 A: Yes. Add `@cp.compile` to speed up specific functions.
 
 **Q: Is it really that fast?**
-A: Yes. 10-100x faster for CPU-intensive tasks.
+A: On numeric, loop-heavy code, yes (see the benchmark table; reproduce with `benchmarks/jit_bench.py`). Code that mostly calls libraries or works on strings/dicts is not compiled and sees no speed-up.
 
 **Q: Can I use NumPy/Pandas?**
-A: Yes. Copperhead works with existing Python libraries.
+A: Not inside compiled functions. 1-D `int64`/`float64` numpy arrays can be *passed in* (read-only, zero-copy); anything else runs as plain Python. Pandas is not supported.
 
 **Q: How does the AI work?**
 A: It uses Ollama (local AI). Your code never leaves your computer.
@@ -431,11 +476,13 @@ A: It uses Ollama (local AI). Your code never leaves your computer.
 A: Your code still runs as Python, so your debugger works. Copperhead also has its own debugger.
 
 **Q: Does the compiler actually work?**
-A: Yes. The full pipeline has been verified: Python → parse → transpile → Cargo build → `.dll`/`.so`.
+A: Yes, and it is tested end to end: build, import the resulting extension in a fresh interpreter, call it, and compare with Python. Windows output is a `.pyd`, Linux/macOS a `.so`.
 
 ---
 
 ## Learn More
+
+- **[JIT guide](docs/JIT.md)** - the `@cp.jit` decorator in depth (what compiles, fallbacks, debugging)
 
 - **[White Paper](https://github.com/unaveragetech/copperhead-rust-puthon/blob/main/WHITEPAPER.md)** - Detailed explanation for everyone
 - **[Technical Deep Dive](https://github.com/unaveragetech/copperhead-rust-puthon/blob/main/docs/ARCHITECTURE.md)** - How it works internally

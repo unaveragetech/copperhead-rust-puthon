@@ -86,14 +86,16 @@ TYPE_MAPPINGS: Dict[str, TypeInfo] = {
     "char": TypeInfo("char", TypeKind.PRIMITIVE, "char", str),
     
     # Collection types
-    "list": TypeInfo("list", TypeKind.COLLECTION, "Vec<Box<dyn PyObject>>", list),
-    "dict": TypeInfo("dict", TypeKind.COLLECTION, "HashMap<Box<dyn PyObject>, Box<dyn PyObject>>", dict),
-    "set": TypeInfo("set", TypeKind.COLLECTION, "HashSet<Box<dyn PyObject>>", set),
-    "tuple": TypeInfo("tuple", TypeKind.COLLECTION, "Vec<Box<dyn PyObject>>", tuple),
-    
+    # NOTE: PyO3's `PyObject` is a concrete handle (Py<PyAny>), not a trait, so `dyn PyObject`
+    # is not valid Rust.  Un-parameterised Python containers are therefore held as Python objects.
+    "list": TypeInfo("list", TypeKind.COLLECTION, "Vec<PyObject>", list),
+    "dict": TypeInfo("dict", TypeKind.COLLECTION, "Py<pyo3::types::PyDict>", dict),
+    "set": TypeInfo("set", TypeKind.COLLECTION, "Py<pyo3::types::PySet>", set),
+    "tuple": TypeInfo("tuple", TypeKind.COLLECTION, "Py<pyo3::types::PyTuple>", tuple),
+
     # Optional/Result types
-    "Option": TypeInfo("Option", TypeKind.CUSTOM, "Option<Box<dyn PyObject>>"),
-    "Result": TypeInfo("Result", TypeKind.CUSTOM, "Result<Box<dyn PyObject>, Box<dyn PyObject>>"),
+    "Option": TypeInfo("Option", TypeKind.CUSTOM, "Option<PyObject>"),
+    "Result": TypeInfo("Result", TypeKind.CUSTOM, "Result<PyObject, PyErr>"),
 }
 
 # Collection type patterns
@@ -176,29 +178,34 @@ class CopperheadParser(ast.NodeVisitor):
         if self.scope_depth == 0:
             self.current_function = None
     
+    _RPB_NAMES = {"compile", "jit"}
+
     def _is_rpb(self, node: ast.FunctionDef) -> bool:
-        """Check if function is a Rich Python Block."""
+        """Check if function is a Rich Python Block.
+
+        Recognised:  ``@cp.compile``  ``@cp.compile(...)``  ``@compile``  ``@jit``  ``@cp.jit(...)``
+        (and ``copperhead.`` spelled out).
+        """
         for decorator in node.decorator_list:
-            if isinstance(decorator, ast.Call):
-                if isinstance(decorator.func, ast.Attribute):
-                    if decorator.func.attr == "compile":
-                        return True
-                elif isinstance(decorator.func, ast.Name):
-                    if decorator.func.id == "compile":
-                        return True
+            target = decorator.func if isinstance(decorator, ast.Call) else decorator
+            if isinstance(target, ast.Attribute) and target.attr in self._RPB_NAMES:
+                root = target.value
+                if isinstance(root, ast.Name) and root.id in ("cp", "copperhead"):
+                    return True
+            elif isinstance(target, ast.Name) and target.id in self._RPB_NAMES:
+                return True
         return False
-    
+
     def _has_no_gil_decorator(self, node: ast.FunctionDef) -> bool:
-        """Check if function has no_gil decorator."""
+        """Check if function has the no_gil decorator (bare or called)."""
         for decorator in node.decorator_list:
-            if isinstance(decorator, ast.Name):
-                if decorator.id == "no_gil":
-                    return True
-            elif isinstance(decorator, ast.Attribute):
-                if decorator.attr == "no_gil":
-                    return True
+            target = decorator.func if isinstance(decorator, ast.Call) else decorator
+            if isinstance(target, ast.Name) and target.id == "no_gil":
+                return True
+            if isinstance(target, ast.Attribute) and target.attr == "no_gil":
+                return True
         return False
-    
+
     def _parse_function_args(self, args: ast.arguments) -> List[VariableInfo]:
         """Parse function arguments."""
         result = []

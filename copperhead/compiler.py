@@ -59,6 +59,7 @@ class BuildConfig:
     use_cache: bool = True
     cache_dir: str = "__copperhead_cache__"
     build_dir: str = "build"
+    verify_import: bool = True  # import the built module in a subprocess before reporting success
 
 
 class CopperheadCompiler:
@@ -70,8 +71,8 @@ class CopperheadCompiler:
         self.build_dir = Path(config.build_dir)
         
         # Ensure directories exist
-        self.cache_dir.mkdir(exist_ok=True)
-        self.build_dir.mkdir(exist_ok=True)
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.build_dir.mkdir(parents=True, exist_ok=True)
     
     def compile(self) -> CompilationResult:
         """Compile the source code."""
@@ -127,50 +128,25 @@ class CopperheadCompiler:
             )
         
         # Transpile to Rust
-        rust_code = transpile_module(module_info)
-        
-        # Determine output name
-        output_name = self.config.output_name or source_path.stem
-        
-        # Create build directory
-        build_path = self.build_dir / output_name
-        build_path.mkdir(exist_ok=True)
-        
-        # Write Rust code in src/ directory (Cargo convention)
-        src_path = build_path / "src"
-        src_path.mkdir(exist_ok=True)
-        rust_file = src_path / "lib.rs"
-        with open(rust_file, 'w', encoding='utf-8') as f:
-            f.write(rust_code)
-        
-        # Generate Cargo.toml
-        cargo_toml = generate_cargo_toml(output_name)
-        cargo_file = build_path / "Cargo.toml"
-        with open(cargo_file, 'w', encoding='utf-8') as f:
-            f.write(cargo_toml)
-        
-        # Generate pyproject.toml
-        pyproject_toml = generate_pyproject_toml(output_name)
-        pyproject_file = build_path / "pyproject.toml"
-        with open(pyproject_file, 'w', encoding='utf-8') as f:
-            f.write(pyproject_toml)
-        
-        # Generate build script
-        build_script = generate_build_script()
-        script_file = build_path / "build.py"
-        with open(script_file, 'w', encoding='utf-8') as f:
-            f.write(build_script)
-        
-        # Try to compile with cargo
-        compile_result = self._run_cargo_build(build_path)
-        
-        if compile_result.status == CompilationStatus.SUCCESS:
-            # Cache the result
-            if self.config.use_cache:
-                self._update_cache(source_path, compile_result.output_path)
-        
+        output_name = _safe_name(self.config.output_name or source_path.stem)
+        rust_code = transpile_module(module_info, module_name=output_name, strict=True)
+
+        compile_result = self._build_crate(output_name, rust_code)
+        if compile_result.status == CompilationStatus.SUCCESS and self.config.use_cache:
+            self._update_cache(source_path, compile_result.output_path)
         return compile_result
-    
+
+    def _build_crate(self, output_name: str, rust_code: str) -> CompilationResult:
+        """Write a conventional Cargo layout (src/lib.rs), build it, return the importable module."""
+        build_path = self.build_dir / output_name
+        src_path = build_path / "src"
+        src_path.mkdir(parents=True, exist_ok=True)
+        (src_path / "lib.rs").write_text(rust_code, encoding="utf-8")
+        (build_path / "Cargo.toml").write_text(generate_cargo_toml(output_name), encoding="utf-8")
+        (build_path / "pyproject.toml").write_text(generate_pyproject_toml(output_name), encoding="utf-8")
+        (build_path / "build.py").write_text(generate_build_script(), encoding="utf-8")
+        return self._run_cargo_build(build_path)
+
     def _compile_directory(self, source_path: Path) -> CompilationResult:
         """Compile all files in a directory."""
         python_files = list(source_path.glob("**/*.py"))
@@ -213,37 +189,30 @@ class CopperheadCompiler:
                 output_path=None
             )
         
-        # Create combined module info
+        # Functions from different files share one Rust module: refuse silent clashes.
+        seen = {}
+        for module in all_modules:
+            for fn in module.functions:
+                if not fn.is_rpb:
+                    continue
+                if fn.name in seen and seen[fn.name] != module.path:
+                    return CompilationResult(
+                        status=CompilationStatus.FAILED,
+                        error_message=(f"Bundle name collision: '{fn.name}' is defined in both "
+                                       f"{seen[fn.name]} and {module.path}; rename one of them"))
+                seen[fn.name] = module.path
+
         combined_module = ModuleInfo(
-            path=str(source_path),
+            path=str(self.config.source_path),
             functions=combined_functions,
-            imports=list(set(combined_imports)),
+            imports=list(dict.fromkeys(combined_imports)),  # de-duplicate, keep order
             rpb_count=rpb_count
         )
-        
-        # Transpile
-        rust_code = transpile_module(combined_module)
-        
-        # Determine output name
-        output_name = self.config.output_name or "copperhead_bundle"
-        
-        # Create build directory
-        build_path = self.build_dir / output_name
-        build_path.mkdir(exist_ok=True)
-        
-        # Write files
-        rust_file = build_path / "lib.rs"
-        with open(rust_file, 'w', encoding='utf-8') as f:
-            f.write(rust_code)
-        
-        cargo_toml = generate_cargo_toml(output_name)
-        cargo_file = build_path / "Cargo.toml"
-        with open(cargo_file, 'w', encoding='utf-8') as f:
-            f.write(cargo_toml)
-        
-        # Compile
-        return self._run_cargo_build(build_path)
-    
+
+        output_name = _safe_name(self.config.output_name or "copperhead_bundle")
+        rust_code = transpile_module(combined_module, module_name=output_name, strict=True)
+        return self._build_crate(output_name, rust_code)
+
     def _compile_modules(self, python_files: List[Path]) -> CompilationResult:
         """Compile each file as a separate module."""
         results = []
@@ -293,31 +262,34 @@ class CopperheadCompiler:
                 ["cargo", "build"] + mode,
                 cwd=build_path,
                 capture_output=True,
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 timeout=300  # 5 minute timeout
             )
             
             if result.returncode == 0:
-                # Find the output library
+                name = build_path.name
+                prof = "release" if self.config.release else "debug"
+                tdir = build_path / "target" / prof
                 if sys.platform == "win32":
-                    lib_name = f"{build_path.name}.dll"
+                    built, ext = tdir / f"{name}.dll", ".pyd"
                 elif sys.platform == "darwin":
-                    lib_name = f"lib{build_path.name}.dylib"
+                    built, ext = tdir / f"lib{name}.dylib", ".so"
                 else:
-                    lib_name = f"lib{build_path.name}.so"
-                
-                output_path = build_path / "target" / ("release" if self.config.release else "debug") / lib_name
-                
-                if output_path.exists():
+                    built, ext = tdir / f"lib{name}.so", ".so"
+                if not built.exists():
                     return CompilationResult(
-                        status=CompilationStatus.SUCCESS,
-                        output_path=str(output_path)
-                    )
-                else:
-                    return CompilationResult(
-                        status=CompilationStatus.SUCCESS,
-                        output_path=str(build_path / "target")
-                    )
+                        status=CompilationStatus.FAILED,
+                        error_message=f"Cargo succeeded but {built} was not produced")
+                # Python imports extension modules as <name>.pyd / <name>.so (not .dll / lib<name>.so)
+                importable = build_path / f"{name}{ext}"
+                shutil.copyfile(built, importable)
+                if self.config.verify_import:
+                    problem = _verify_import(importable, name)
+                    if problem:
+                        return CompilationResult(
+                            status=CompilationStatus.FAILED,
+                            error_message=f"Built {importable.name} but it cannot be imported: {problem}")
+                return CompilationResult(status=CompilationStatus.SUCCESS, output_path=str(importable))
             else:
                 return CompilationResult(
                     status=CompilationStatus.FAILED,
@@ -363,11 +335,30 @@ class CopperheadCompiler:
             json.dump(cache_data, f)
     
     def _get_cache_key(self, source_path: Path) -> str:
-        """Generate cache key for a source file."""
-        # Use file path and modification time as cache key
-        mtime = os.path.getmtime(source_path)
-        key = f"{source_path}_{mtime}"
-        return hashlib.md5(key.encode()).hexdigest()
+        """Content hash + build configuration (an mtime can be preserved or faked)."""
+        h = hashlib.sha256()
+        h.update(Path(source_path).read_bytes())
+        cfg = (self.config.output_name, self.config.target, self.config.release, self.config.mode.name,
+               __import__("copperhead").__version__)
+        h.update(repr(cfg).encode())
+        return h.hexdigest()
+
+
+def _safe_name(name: str) -> str:
+    """A valid Rust/Python identifier for the crate, lib and PyInit_ symbol."""
+    import re
+    n = re.sub(r"\W", "_", name)
+    return n if n and not n[0].isdigit() else f"m_{n}"
+
+
+def _verify_import(path: Path, name: str) -> Optional[str]:
+    code = ("import importlib.machinery as m, importlib.util as u;"
+            f"l=m.ExtensionFileLoader({name!r}, {str(path)!r});"
+            f"s=u.spec_from_file_location({name!r}, {str(path)!r}, loader=l);"
+            "mod=u.module_from_spec(s);l.exec_module(mod)")
+    r = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", timeout=60)
+    return None if r.returncode == 0 else (r.stderr.strip().splitlines() or ["unknown error"])[-1]
 
 
 def compile_source(source: str, filename: str = "<unknown>", **kwargs) -> CompilationResult:

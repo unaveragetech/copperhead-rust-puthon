@@ -1025,3 +1025,5 @@ See [ROADMAP.md](https://github.com/unaveragetech/copperhead-rust-puthon/blob/ma
 ---
 
 *Copperhead: Write Python. Run Rust.*
+
+- [`@cp.jit` guide](JIT.md)

@@ -16,7 +16,7 @@ Features:
 import sys
 from typing import Any, Callable, TypeVar, Generic, Optional, Union
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __author__ = "Copperhead Team"
 
 # LLM integration (import on demand to avoid requiring ollama)
@@ -298,48 +298,94 @@ def Err(error: Any) -> Result:
     """Create an error Result."""
     return Result(error=error)
 
-# Decorators for compilation
-def compile(target: str = "rust"):
-    """Decorator to mark a function for compilation to Rust."""
-    def decorator(func: Callable) -> Callable:
-        func._copperhead_target = target
-        func._copperhead_compile = True
-        return func
-    return decorator
+# Decorators for compilation ------------------------------------------------
+from .jit import (  # noqa: E402
+    jit, JitFunction, CopperheadWarning, Unsupported, BuildError,
+    rust_available, clear_cache, cache_dir,
+)
+
+
+def compile(func=None, *, target: str = "rust", strict: bool = False, warn: bool = True,
+            eager: bool = False):
+    """Compile a function to native Rust.  All of these forms work::
+
+        @cp.compile
+        @cp.compile()
+        @cp.compile("rust")
+        @cp.compile(strict=True)
+
+    The first call compiles (result cached on disk); unsupported code falls back
+    to Python with a single warning.  See :func:`copperhead.jit`.
+    """
+    if isinstance(func, str):  # legacy: @cp.compile("rust")
+        target, func = func, None
+    if target != "rust":
+        raise ValueError(f"unsupported target {target!r} (only 'rust')")
+
+    def decorator(f: Callable) -> Callable:
+        if isinstance(f, JitFunction):
+            return f
+        jf = JitFunction(f, strict=strict, warn=warn, eager=eager)
+        jf._copperhead_target = target
+        return jf
+
+    return decorator(func) if callable(func) else decorator
+
 
 def no_gil(func: Callable) -> Callable:
-    """Decorator to mark a function for GIL-free execution."""
-    func._copperhead_no_gil = True
-    return func
+    """Compile ``func`` and mark it GIL-free.
 
-# Import hook for seamless execution
-class CopperheadImporter:
-    """Custom import hook for seamless Copperhead module loading."""
-    
+    Compiled functions are called through ctypes, which releases the GIL for the
+    whole native call, so several Python threads really do run them in parallel.
+    """
+    if isinstance(func, JitFunction):
+        func._no_gil = func._copperhead_no_gil = True
+        return func
+    return JitFunction(func, no_gil=True)
+
+
+# Import hook (opt-in) ---------------------------------------------------------
+import importlib.abc as _abc  # noqa: E402
+import importlib.machinery as _machinery  # noqa: E402
+import importlib.util as _util  # noqa: E402
+
+
+class CopperheadImporter(_abc.MetaPathFinder):
+    """Meta-path finder for modules registered with :meth:`register` only.
+
+    It never claims a module it does not know about, so it cannot interfere with
+    normal imports.  Registered paths must be compiled extension modules
+    (``.pyd`` / ``.so``) built by ``copperhead build``.
+    """
+
     def __init__(self):
-        self.cache_dir = None
-    
-    def find_module(self, fullname: str, path: Optional[list] = None):
-        """Find module for import."""
-        return self
-    
-    def load_module(self, fullname: str):
-        """Load module from cache or compile on demand."""
-        if fullname in sys.modules:
-            return sys.modules[fullname]
-        
-        # Check for cached .so file
-        # If not found, JIT compile
-        # For now, return None to fall back to standard Python
-        return None
+        self.modules: dict = {}
 
-def install_importer():
-    """Install the Copperhead import hook."""
-    importer = CopperheadImporter()
-    sys.meta_path.insert(0, importer)
+    def register(self, fullname: str, path: str) -> None:
+        self.modules[fullname] = path
 
-# Auto-install importer when copperhead is imported
-install_importer()
+    def find_spec(self, fullname, path=None, target=None):
+        file = self.modules.get(fullname)
+        if file is None:
+            return None
+        loader = _machinery.ExtensionFileLoader(fullname, file)
+        return _util.spec_from_file_location(fullname, file, loader=loader)
+
+
+_importer = CopperheadImporter()
+
+
+def install_importer() -> CopperheadImporter:
+    """Install the (idempotent) import hook. Not done automatically."""
+    if _importer not in sys.meta_path:
+        sys.meta_path.append(_importer)
+    return _importer
+
+
+def uninstall_importer() -> None:
+    if _importer in sys.meta_path:
+        sys.meta_path.remove(_importer)
+
 
 # Utility functions
 def sizeof(obj: Any) -> int:

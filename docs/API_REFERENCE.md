@@ -1,3 +1,5 @@
+> **New in 0.2:** `cp.jit`, `cp.compile`, `cp.no_gil`, `cp.Unsupported`, `cp.CopperheadWarning`, `cp.rust_available()`, `cp.clear_cache()`, `cp.cache_dir()` - documented in [JIT guide](JIT.md). `cp.install_importer()` is now opt-in.
+
 # Copperhead API Reference
 
 Complete reference for all Copperhead functions, types, and modules.

@@ -51,7 +51,7 @@ def write_and_compile(rust_code: str, name: str = "test_module") -> bool:
             ["cargo", "build", "--release"],
             cwd=build_dir,
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             timeout=120
         )
         return result.returncode == 0
@@ -1212,7 +1212,7 @@ class TestExprCall:
             '@cp.compile(target="rust")\n'
             'def f(x: list[cp.i64]) -> cp.i64:\n'
             '    return sum(x)\n',
-            expected_patterns=["iter().sum"]
+            expected_patterns=["fold("]
         )
 
     def test_builtin_sorted(self):
@@ -1275,7 +1275,7 @@ class TestExprCall:
             '@cp.compile(target="rust")\n'
             'def f() -> cp.i64:\n'
             '    return ord("A")\n',
-            expected_patterns=["as_bytes()[0] as i64"]
+            expected_patterns=["chars().next()"]
         )
 
     def test_builtin_hex(self):
@@ -1320,7 +1320,7 @@ class TestExprCall:
             '@cp.compile(target="rust")\n'
             'def f() -> cp.f64:\n'
             '    return round(3.14)\n',
-            expected_patterns=["round()"]
+            expected_patterns=["round_ties_even()"]
         )
 
     def test_builtin_divmod(self):
@@ -1953,7 +1953,7 @@ class TestListMethods:
             '    x = [1, 2, 3]\n'
             '    x.remove(2)\n'
             '    return x\n',
-            expected_patterns=["retain"]
+            expected_patterns=["position"]
         )
 
     def test_pop(self):
